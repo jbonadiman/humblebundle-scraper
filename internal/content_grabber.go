@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
-	"regexp"
 )
 
 func browserlessRequest(
@@ -15,31 +15,31 @@ func browserlessRequest(
 	endpoint string,
 	preprocessor string,
 ) ([]byte, error) {
-	payload := make(map[string]string)
+	payload := make(map[string]interface{})
 
 	switch endpoint {
 	case "content":
 		payload["url"] = url
 		break
 	case "function":
-		payload["context"] = fmt.Sprintf("{\"url\": %s}", url)
+		payload["context"] = map[string]string{"url": url}
 		payload["code"] = minifyJavascript(
 			fmt.Sprintf(
-				"module.exports=async({page,context})=>{const{url}=context;await page.goto(url);%s;const data=await page.content();return{data,type:'application/html'}}",
+				"module.exports=async({page,context})=>{const{url}=context;await page.goto(url);%sconst data=await page.content();return{data,type:'application/html'}}",
 				preprocessor,
 			),
 		)
 	}
 
 	reqBody, err := json.Marshal(payload)
-
 	if err != nil {
 		return nil, err
 	}
+	log.Println(string(reqBody))
 
 	resp, err := http.Post(
 		fmt.Sprintf(
-			"https://chrome.browserless.io/%s?token=%s&headless=true&blockAds=true",
+			"https://chrome.browserless.io/%s?token=%s&headless=true&blockAds=true&stealth=true",
 			endpoint,
 			browserlessToken,
 		),
@@ -56,7 +56,6 @@ func browserlessRequest(
 	}(resp.Body)
 
 	body, err := io.ReadAll(resp.Body)
-
 	if err != nil {
 		return nil, err
 	}
@@ -77,5 +76,5 @@ func GrabContentPreprocessing(
 }
 
 func minifyJavascript(jsCode string) string {
-	return regexp.MustCompile(`\s+`).ReplaceAllString(jsCode, "")
+	return jsCode
 }
