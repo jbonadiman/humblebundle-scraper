@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/text/language"
 )
 
 type BookInfo struct {
@@ -55,7 +55,7 @@ func isbn10ToIsbn13(isbn10 string) string {
 	return isbn13
 }
 
-func validateBookCode(asin, isbn string) (string, error) {
+func getBookCode(asin, isbn string) (string, error) {
 	if asin == "" && isbn == "" {
 		return "", errors.New("ASIN or ISBN-13 codes are mandatory")
 	}
@@ -68,12 +68,11 @@ func validateBookCode(asin, isbn string) (string, error) {
 		return asin, nil
 	}
 
-	isbnPattern := regexp.MustCompile("^(?=(?:\\D*\\d){10}(?:(?:\\D*\\d){3})?$)[\\d-]+$")
+	isbnPattern := regexp.MustCompile("^(?:\\d[\\d-]{0,4}){3}[\\dX]$")
 	if !isbnPattern.MatchString(isbn) {
 		return "", errors.New("invalid ISBN code")
 	}
 
-	// converts ISBN-10 to ISBN-13
 	if len(isbn) == 10 {
 		isbn = isbn10ToIsbn13(isbn)
 	}
@@ -81,13 +80,48 @@ func validateBookCode(asin, isbn string) (string, error) {
 	return isbn, nil
 }
 
+func parseDate(date string) (time.Time, error) {
+	var months = map[string]string{
+		"janeiro":   "January",
+		"fevereiro": "February",
+		"março":     "March",
+		"abril":     "April",
+		"maio":      "May",
+		"junho":     "June",
+		"julho":     "July",
+		"agosto":    "August",
+		"setembro":  "September",
+		"outubro":   "October",
+		"novembro":  "November",
+		"dezembro":  "December",
+	}
+
+	for portugueseMonth, englishMonth := range months {
+		date = strings.ReplaceAll(date, portugueseMonth, englishMonth)
+	}
+
+	return time.Parse("2 January 2006", date)
+}
+
+func languageToIso(languageText string) language.Tag {
+	var languages = map[string]language.Tag{
+		"Português": language.BrazilianPortuguese,
+		"Inglês":    language.AmericanEnglish,
+		"Espanhol":  language.Spanish,
+		"Francês":   language.French,
+		"Alemão":    language.German,
+		"Italiano":  language.Italian,
+	}
+
+	return languages[languageText]
+}
+
 func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
-	bookCode, err := validateBookCode(asin, isbn)
+	bookCode, err := getBookCode(asin, isbn)
 	if err != nil {
 		return BookInfo{}, err
 	}
 
-	log.Println(bookCode)
 	htmlContent, err := GrabContent(
 		browserlessToken,
 		fmt.Sprintf(AmazonUrl, bookCode),
@@ -104,30 +138,77 @@ func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
 	title := strings.Trim(doc.Find("#productTitle").Text(), " ")
 
 	var authors []string
-	doc.Find(".author").Each(
+	doc.Find(".author > a").Each(
 		func(_ int, s *goquery.Selection) {
 			authors = append(authors, s.Text())
 		},
 	)
 
 	var description strings.Builder
-
 	doc.Find("#bookDescription_feature_div span:not(.a-expander-prompt)").Each(
 		func(_ int, s *goquery.Selection) {
 			description.WriteString(strings.Trim(s.Text(), " "))
 		},
 	)
 
+	publisher := strings.Trim(
+		doc.Find("#rpi-attribute-book_details-publisher div.rpi-attribute-value").Text(),
+		" ",
+	)
+
+	publishedAtText := strings.Trim(
+		doc.Find("#rpi-attribute-book_details-publication_date div.rpi-attribute-value").Text(),
+		" ",
+	)
+	publishedAt, _ := parseDate(publishedAtText)
+
+	languageText := strings.Trim(
+		doc.Find("#rpi-attribute-language div.rpi-attribute-value").Text(),
+		" ",
+	)
+	languageTag := languageToIso(languageText)
+
+	imageUnparsedUrls, _ := doc.Find("#ebooksImgBlkFront").Attr("data-a-dynamic-image")
+	var imageMapping map[string][]int
+
+	err = json.Unmarshal([]byte(imageUnparsedUrls), &imageMapping)
+	if err != nil {
+		return BookInfo{}, err
+	}
+
+	var biggestCoverUrl string
+	var biggestCoverHeight int
+
+	for coverUrl, imageSize := range imageMapping {
+		if imageSize[1] > biggestCoverHeight {
+			biggestCoverHeight = imageSize[1]
+			biggestCoverUrl = coverUrl
+		}
+	}
+
+	var mobiAsin string
+	var isbn13 string
+
+	if asin != "" {
+		mobiAsin = bookCode
+		// TODO: get isbn13
+		isbn13 = ""
+		// isbn13 = doc.Find("#rpi-attribute-book_details-isbn13 .rpi-attribute-value").Text()
+	} else {
+		isbn13 = bookCode
+		// TODO: get asin
+		mobiAsin = ""
+	}
+
 	return BookInfo{
 		Title:       title,
 		Authors:     authors,
-		CoverUrl:    "",
-		Language:    "",
-		Publisher:   "",
-		PublishedAt: time.Time{},
+		CoverUrl:    biggestCoverUrl,
+		Language:    languageTag.String(),
+		Publisher:   publisher,
+		PublishedAt: publishedAt,
 		Description: description.String(),
-		Subjects:    nil,
-		Asin:        "",
-		Isbn:        "",
+		Asin:        mobiAsin,
+		Isbn:        isbn13,
 	}, nil
 }
