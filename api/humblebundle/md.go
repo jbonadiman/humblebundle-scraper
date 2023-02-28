@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"humblebundle-scraper/internal"
+	"webscrapers/internal"
 )
 
 //goland:noinspection GoUnusedExportedFunction

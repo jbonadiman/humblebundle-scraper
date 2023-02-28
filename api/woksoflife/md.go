@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"humblebundle-scraper/internal"
+	"webscrapers/internal"
 )
 
 const ImageSize = 400
