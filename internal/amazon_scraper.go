@@ -34,6 +34,130 @@ func (b BookInfo) String() string {
 	return string(bookInfo)
 }
 
+func getTextElement(
+	document *goquery.Document,
+	selector, elementName string,
+) (string, error) {
+	rawText := document.Find(selector).Text()
+
+	if rawText == "" {
+		return "", errors.New(
+			fmt.Sprintf(
+				"could not find %s using selector %q",
+				elementName,
+				selector,
+			),
+		)
+	}
+
+	return strings.Trim(rawText, " "), nil
+}
+
+func getBookCover(document *goquery.Document) (string, error) {
+	selector := "#ebooksImgBlkFront"
+	imageUnparsedUrls, _ := document.Find(selector).Attr("data-a-dynamic-image")
+
+	var imageMapping map[string][]int
+	err := json.Unmarshal([]byte(imageUnparsedUrls), &imageMapping)
+	if err != nil {
+		return "", err
+	}
+
+	var biggestCoverUrl string
+	var biggestCoverHeight int
+
+	for coverUrl, imageSize := range imageMapping {
+		if imageSize[1] > biggestCoverHeight {
+			biggestCoverHeight = imageSize[1]
+			biggestCoverUrl = coverUrl
+		}
+	}
+
+	return biggestCoverUrl, nil
+}
+
+func getBookPublishedDate(document *goquery.Document) (time.Time, error) {
+	publishedAtText, err := getTextElement(
+		document,
+		"#rpi-attribute-book_details-publication_date div.rpi-attribute-value",
+		"publishedAt",
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return parseDate(publishedAtText)
+}
+
+func getBookTitle(document *goquery.Document) (string, error) {
+	return getTextElement(document, "#productTitle", "title")
+}
+
+func getBookPublisher(document *goquery.Document) (string, error) {
+	return getTextElement(
+		document,
+		"#rpi-attribute-book_details-publisher div.rpi-attribute-value",
+		"publisher",
+	)
+}
+
+func getBookAuthors(document *goquery.Document) ([]string, error) {
+	selector := ".author > a"
+
+	var authors []string
+	document.Find("").Each(
+		func(_ int, s *goquery.Selection) {
+			authors = append(authors, strings.Trim(s.Text(), " "))
+		},
+	)
+
+	for _, name := range authors {
+		if name == "" {
+			return nil, errors.New(
+				fmt.Sprintf(
+					"could not find some/all authors using selector %q",
+					selector,
+				),
+			)
+		}
+	}
+
+	return authors, nil
+}
+
+func getBookDescription(document *goquery.Document) (string, error) {
+	selector := "#bookDescription_feature_div span:not(.a-expander-prompt)"
+
+	var descriptionBuilder strings.Builder
+	document.Find(selector).Each(
+		func(_ int, s *goquery.Selection) {
+			descriptionBuilder.WriteString(strings.Trim(s.Text(), " "))
+		},
+	)
+
+	description := descriptionBuilder.String()
+
+	if description == "" {
+		return "", errors.New(
+			fmt.Sprintf(
+				"could not find description using selector %q",
+				selector,
+			),
+		)
+	}
+
+	return description, nil
+}
+
+func getBookLanguage(document *goquery.Document) (language.Tag, error) {
+	languageText, err := getTextElement(document, "", "language")
+	if err != nil {
+		return language.Tag{}, err
+	}
+
+	return languageToIso(languageText)
+}
+
 func isbn10ToIsbn13(isbn10 string) string {
 	isbn13 := "978" + isbn10[:9]
 
@@ -55,7 +179,7 @@ func isbn10ToIsbn13(isbn10 string) string {
 	return isbn13
 }
 
-func getBookCode(asin, isbn string) (string, error) {
+func parseBookCode(asin, isbn string) (string, error) {
 	if asin == "" && isbn == "" {
 		return "", errors.New("ASIN or ISBN-13 codes are mandatory")
 	}
@@ -103,7 +227,7 @@ func parseDate(date string) (time.Time, error) {
 	return time.Parse("2 January 2006", date)
 }
 
-func languageToIso(languageText string) language.Tag {
+func languageToIso(languageText string) (language.Tag, error) {
 	var languages = map[string]language.Tag{
 		"Português": language.BrazilianPortuguese,
 		"Inglês":    language.AmericanEnglish,
@@ -113,11 +237,21 @@ func languageToIso(languageText string) language.Tag {
 		"Italiano":  language.Italian,
 	}
 
-	return languages[languageText]
+	if tag, ok := languages[languageText]; ok {
+		return tag, nil
+
+	}
+
+	return language.Tag{}, errors.New(
+		fmt.Sprintf(
+			"could not parse language %q to its ISO equivalent",
+			languageText,
+		),
+	)
 }
 
 func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
-	bookCode, err := getBookCode(asin, isbn)
+	bookCode, err := parseBookCode(asin, isbn)
 	if err != nil {
 		return BookInfo{}, err
 	}
@@ -135,55 +269,39 @@ func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
 		return BookInfo{}, err
 	}
 
-	title := strings.Trim(doc.Find("#productTitle").Text(), " ")
-
-	var authors []string
-	doc.Find(".author > a").Each(
-		func(_ int, s *goquery.Selection) {
-			authors = append(authors, s.Text())
-		},
-	)
-
-	var description strings.Builder
-	doc.Find("#bookDescription_feature_div span:not(.a-expander-prompt)").Each(
-		func(_ int, s *goquery.Selection) {
-			description.WriteString(strings.Trim(s.Text(), " "))
-		},
-	)
-
-	publisher := strings.Trim(
-		doc.Find("#rpi-attribute-book_details-publisher div.rpi-attribute-value").Text(),
-		" ",
-	)
-
-	publishedAtText := strings.Trim(
-		doc.Find("#rpi-attribute-book_details-publication_date div.rpi-attribute-value").Text(),
-		" ",
-	)
-	publishedAt, _ := parseDate(publishedAtText)
-
-	languageText := strings.Trim(
-		doc.Find("#rpi-attribute-language div.rpi-attribute-value").Text(),
-		" ",
-	)
-	languageTag := languageToIso(languageText)
-
-	imageUnparsedUrls, _ := doc.Find("#ebooksImgBlkFront").Attr("data-a-dynamic-image")
-	var imageMapping map[string][]int
-
-	err = json.Unmarshal([]byte(imageUnparsedUrls), &imageMapping)
+	title, err := getBookTitle(doc)
 	if err != nil {
 		return BookInfo{}, err
 	}
 
-	var biggestCoverUrl string
-	var biggestCoverHeight int
+	authors, err := getBookAuthors(doc)
+	if err != nil {
+		return BookInfo{}, err
+	}
 
-	for coverUrl, imageSize := range imageMapping {
-		if imageSize[1] > biggestCoverHeight {
-			biggestCoverHeight = imageSize[1]
-			biggestCoverUrl = coverUrl
-		}
+	description, err := getBookDescription(doc)
+	if err != nil {
+		return BookInfo{}, err
+	}
+
+	publisher, err := getBookPublisher(doc)
+	if err != nil {
+		return BookInfo{}, err
+	}
+
+	publishedAt, err := getBookPublishedDate(doc)
+	if err != nil {
+		return BookInfo{}, err
+	}
+
+	languageTag, err := getBookLanguage(doc)
+	if err != nil {
+		return BookInfo{}, err
+	}
+
+	coverUrl, err := getBookCover(doc)
+	if err != nil {
+		return BookInfo{}, err
 	}
 
 	var mobiAsin string
@@ -203,11 +321,11 @@ func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
 	return BookInfo{
 		Title:       title,
 		Authors:     authors,
-		CoverUrl:    biggestCoverUrl,
+		CoverUrl:    coverUrl,
 		Language:    languageTag.String(),
 		Publisher:   publisher,
 		PublishedAt: publishedAt,
-		Description: description.String(),
+		Description: description,
 		Asin:        mobiAsin,
 		Isbn:        isbn13,
 	}, nil
