@@ -18,11 +18,10 @@ type BookInfo struct {
 	Title       string
 	Authors     []string
 	CoverUrl    string
-	Language    string
+	Language    language.Tag
 	Publisher   string
 	PublishedAt time.Time
 	Description string
-	Subjects    []string
 	Asin        string
 	Isbn        string
 }
@@ -322,7 +321,7 @@ func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
 		Title:       title,
 		Authors:     authors,
 		CoverUrl:    coverUrl,
-		Language:    languageTag.String(),
+		Language:    languageTag,
 		Publisher:   publisher,
 		PublishedAt: publishedAt,
 		Description: description,
