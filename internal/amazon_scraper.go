@@ -14,20 +14,19 @@ import (
 	"golang.org/x/text/language"
 )
 
+const AmazonUrl = "https://www.amazon.com.br/dp/%s"
+
 type BookInfo struct {
 	Title       string
 	Authors     []string
 	CoverUrl    string
-	Language    string
+	Language    language.Tag
 	Publisher   string
 	PublishedAt time.Time
 	Description string
-	Subjects    []string
 	Asin        string
 	Isbn        string
 }
-
-const AmazonUrl = "https://www.amazon.com.br/dp/%s"
 
 func (b BookInfo) String() string {
 	bookInfo, _ := json.Marshal(b)
@@ -322,7 +321,7 @@ func GetBookInfo(browserlessToken, asin, isbn string) (BookInfo, error) {
 		Title:       title,
 		Authors:     authors,
 		CoverUrl:    coverUrl,
-		Language:    languageTag.String(),
+		Language:    languageTag,
 		Publisher:   publisher,
 		PublishedAt: publishedAt,
 		Description: description,
