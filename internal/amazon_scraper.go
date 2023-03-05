@@ -149,7 +149,11 @@ func getBookDescription(document *goquery.Document) (string, error) {
 }
 
 func getBookLanguage(document *goquery.Document) (language.Tag, error) {
-	languageText, err := getTextElement(document, "", "language")
+	languageText, err := getTextElement(
+		document,
+		"#rpi-attribute-language div.rpi-attribute-value",
+		"language",
+	)
 	if err != nil {
 		return language.Tag{}, err
 	}
