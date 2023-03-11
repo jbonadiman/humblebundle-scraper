@@ -15,15 +15,15 @@ import (
 )
 
 type BookInfo struct {
-	Title       string
-	Authors     []string
-	CoverUrl    string
-	Language    language.Tag
-	Publisher   string
-	PublishedAt time.Time
-	Description string
-	Asin        string
-	Isbn        string
+	Title       string       `json:"title"`
+	Authors     []string     `json:"authors"`
+	CoverUrl    string       `json:"coverUrl"`
+	Language    language.Tag `json:"language"`
+	Publisher   string       `json:"publisher"`
+	PublishedAt time.Time    `json:"publishedAt"`
+	Description string       `json:"description"`
+	Asin        string       `json:"asin"`
+	Isbn        string       `json:"isbn"`
 }
 
 const AmazonUrl = "https://www.amazon.com.br/dp/%s"
