@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "framework": null,
+  "functions": {
+    "api/**": {
+      "memory": 128,
+      "maxDuration": 10
+    }
+  },
+  "trailingSlash": false
+}
